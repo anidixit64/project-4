@@ -130,8 +130,8 @@ vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
 							1. flush output buffer to disk, while pushing the returned disk page id to 
 							   disk_pages
 						2. load pair into output buffer
-				3. for each bucket buffer:
-					1. if bucket is not full, flush to disk and 
+				3. for memory page with id < MEM_SIZE_IN_PAGE - 2:
+					1. if bucket is not full, flush to dis 
 			3. flush input buffer to disk
 	2. return disk_pages
 	*/
