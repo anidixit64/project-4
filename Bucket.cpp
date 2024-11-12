@@ -17,4 +17,3 @@ void Bucket::add_right_rel_page(uint page_id) {
 	right_rel.push_back(page_id);
 	num_right_rel_record += disk->diskRead(page_id)->size();
 }
-// test  
