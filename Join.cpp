@@ -105,13 +105,79 @@ vector<Bucket> partition(Disk* disk, Mem* mem, pair<uint, uint> left_rel,
  * Output: Vector of disk page ids for join result
  */
 vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
-	// TODO: implement probe phase
-	vector<uint> disk_pages; 
+    vector<uint> disk_pages; 
 
-	//pseudo-code
+    for (auto& b : partitions) {
+        uint left_num = b.num_left_rel_record;
+        uint right_num = b.num_right_rel_record;
+
+        vector<uint> smaller = (left_num <= right_num) ? b.get_left_rel() : b.get_right_rel();
+        vector<uint> bigger = (left_num > right_num) ? b.get_left_rel() : b.get_right_rel();
+
+        for (auto& p : smaller) {
+            mem->loadFromDisk(disk, p, MEM_SIZE_IN_PAGE - 2);
+            Page* input_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 2);
+
+            for (uint record_id = 0; record_id < input_buffer->size(); ++record_id) {
+                Record r = input_buffer->get_record(record_id);
+                uint hashed_page_id = r.partition_hash() % (MEM_SIZE_IN_PAGE - 2);
+                Page* hashed_page = mem->mem_page(hashed_page_id);
+                hashed_page->loadRecord(r);
+
+                if (hashed_page->full()) {
+                    disk_pages.push_back(mem->flushToDisk(disk, hashed_page_id));
+                }
+            }
+
+            input_buffer->reset();
+        }
+
+        for (auto& p : bigger) {
+            mem->loadFromDisk(disk, p, MEM_SIZE_IN_PAGE - 2);
+            Page* input_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 2);
+
+            for (uint record_id = 0; record_id < input_buffer->size(); ++record_id) {
+                Record r = input_buffer->get_record(record_id);
+                uint hashed_page_id = r.partition_hash() % (MEM_SIZE_IN_PAGE - 2);
+                Page* hashed_page = mem->mem_page(hashed_page_id);
+
+                for (uint bucket_record_id = 0; bucket_record_id < hashed_page->size(); ++bucket_record_id) {
+                    Record hashed_record = hashed_page->get_record(bucket_record_id);
+                    if (r.equal(hashed_record)) {
+                        Page* output_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
+                        if (output_buffer->full()) {
+                            disk_pages.push_back(mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1));
+                        }
+
+                        output_buffer->loadRecord(r);
+                        output_buffer->loadRecord(hashed_record);
+                    }
+                }
+            }
+
+            input_buffer->reset();
+        }
+
+        Page* output_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
+        if (!output_buffer->empty()) {
+            disk_pages.push_back(mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1));
+        }
+
+        for (uint page_id = 0; page_id < MEM_SIZE_IN_PAGE - 2; ++page_id) {
+            Page* page = mem->mem_page(page_id);
+            if (!page->empty()) {
+                disk_pages.push_back(mem->flushToDisk(disk, page_id));
+            }
+        }
+
+        disk_pages.push_back(mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 2));
+    }
+
+    return disk_pages;
+}
+
+	
 	/*
-	NOTE: second to last memory page is input buffer. last page is output buffer
-	1. for each bucket: 
 		1. compare number of left and right relations and use the smaller relation for building hash table
 		2. get smaller relation's page ids
 		3. for each page in smaller relation:
@@ -133,8 +199,6 @@ vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
 				3. for memory page with id < MEM_SIZE_IN_PAGE - 2:
 					1. if bucket is not full, flush to disk
 			3. flush input buffer to disk
+	
 	2. return disk_pages
 	*/
-	
-	return disk_pages;
-}
