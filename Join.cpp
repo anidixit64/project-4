@@ -104,73 +104,84 @@ vector<Bucket> partition(Disk* disk, Mem* mem, pair<uint, uint> left_rel,
  * Input: Disk, Memory, Vector of Buckets after partition
  * Output: Vector of disk page ids for join result
  */
+#include <vector>
+#include "Disk.hpp"
+#include "Mem.hpp"
+#include "Bucket.hpp"
+
+using namespace std;
+
 vector<uint> probe(Disk* disk, Mem* mem, vector<Bucket>& partitions) {
-    vector<uint> disk_pages; 
+    vector<uint> disk_pages;
 
-    for (auto& b : partitions) {
-        uint left_num = b.num_left_rel_record;
-        uint right_num = b.num_right_rel_record;
+    for (auto& bucket : partitions) {
+        bool use_left = bucket.num_left_rel_record <= bucket.num_right_rel_record;
+        
+        vector<uint> smaller_rel = use_left ? bucket.get_left_rel() : bucket.get_right_rel();
+        vector<uint> bigger_rel = use_left ? bucket.get_right_rel() : bucket.get_left_rel();
 
-        vector<uint> smaller = (left_num <= right_num) ? b.get_left_rel() : b.get_right_rel();
-        vector<uint> bigger = (left_num > right_num) ? b.get_left_rel() : b.get_right_rel();
+        for (uint page_id : smaller_rel) {
+            mem->reset();
 
-        for (auto& p : smaller) {
-            mem->loadFromDisk(disk, p, MEM_SIZE_IN_PAGE - 2);
-            Page* input_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 2);
+            mem->loadFromDisk(disk, page_id, MEM_SIZE_IN_PAGE - 1);
+            Page* input_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
 
-            for (uint record_id = 0; record_id < input_buffer->size(); ++record_id) {
-                Record r = input_buffer->get_record(record_id);
-                uint hashed_page_id = r.partition_hash() % (MEM_SIZE_IN_PAGE - 2);
-                Page* hashed_page = mem->mem_page(hashed_page_id);
-                hashed_page->loadRecord(r);
-
-                if (hashed_page->full()) {
-                    disk_pages.push_back(mem->flushToDisk(disk, hashed_page_id));
+            
+            for (uint record_idx = 0; record_idx < input_buffer->size(); ++record_idx) {
+                Record rec = input_buffer->get_record(record_idx);
+                uint hashed_page_id = rec.partition_hash() % (MEM_SIZE_IN_PAGE - 2); 
+                
+                Page* hash_page = mem->mem_page(hashed_page_id);
+                if (hash_page->full()) {
+                    mem->flushToDisk(disk, hashed_page_id);
+                    hash_page->reset();
                 }
+                hash_page->loadRecord(rec);
             }
 
-            input_buffer->reset();
+            
+            for (uint i = 0; i < MEM_SIZE_IN_PAGE - 2; ++i) {
+                Page* hash_page = mem->mem_page(i);
+                if (!hash_page->empty()) {
+                    mem->flushToDisk(disk, i);
+                }
+            }
         }
 
-        for (auto& p : bigger) {
-            mem->loadFromDisk(disk, p, MEM_SIZE_IN_PAGE - 2);
-            Page* input_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 2);
+        
+        for (uint page_id : bigger_rel) {
+            mem->reset(); 
 
-            for (uint record_id = 0; record_id < input_buffer->size(); ++record_id) {
-                Record r = input_buffer->get_record(record_id);
-                uint hashed_page_id = r.partition_hash() % (MEM_SIZE_IN_PAGE - 2);
-                Page* hashed_page = mem->mem_page(hashed_page_id);
+            
+            mem->loadFromDisk(disk, page_id, MEM_SIZE_IN_PAGE - 1);
+            Page* input_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
 
-                for (uint bucket_record_id = 0; bucket_record_id < hashed_page->size(); ++bucket_record_id) {
-                    Record hashed_record = hashed_page->get_record(bucket_record_id);
-                    if (r.equal(hashed_record)) {
-                        Page* output_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
+            
+            for (uint record_idx = 0; record_idx < input_buffer->size(); ++record_idx) {
+                Record big_rec = input_buffer->get_record(record_idx);
+                uint hashed_page_id = big_rec.partition_hash() % (MEM_SIZE_IN_PAGE - 2);
+
+                
+                Page* hash_page = mem->mem_page(hashed_page_id);
+                for (uint hash_rec_idx = 0; hash_rec_idx < hash_page->size(); ++hash_rec_idx) {
+                    Record hash_rec = hash_page->get_record(hash_rec_idx);
+                    if (big_rec == hash_rec) {
+                        Page* output_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1); 
+
                         if (output_buffer->full()) {
                             disk_pages.push_back(mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1));
+                            output_buffer->reset(); 
                         }
-
-                        output_buffer->loadRecord(r);
-                        output_buffer->loadRecord(hashed_record);
+                        output_buffer->loadPair(hash_rec, big_rec); 
                     }
                 }
             }
-
-            input_buffer->reset();
         }
 
         Page* output_buffer = mem->mem_page(MEM_SIZE_IN_PAGE - 1);
         if (!output_buffer->empty()) {
             disk_pages.push_back(mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 1));
         }
-
-        for (uint page_id = 0; page_id < MEM_SIZE_IN_PAGE - 2; ++page_id) {
-            Page* page = mem->mem_page(page_id);
-            if (!page->empty()) {
-                disk_pages.push_back(mem->flushToDisk(disk, page_id));
-            }
-        }
-
-        disk_pages.push_back(mem->flushToDisk(disk, MEM_SIZE_IN_PAGE - 2));
     }
 
     return disk_pages;

@@ -7,8 +7,8 @@
 
 typedef unsigned int uint;
 
-const uint RECORDS_PER_PAGE = 32;
-const uint MEM_SIZE_IN_PAGE = 16;
+const uint RECORDS_PER_PAGE = 64;
+const uint MEM_SIZE_IN_PAGE = 32;
 const uint DISK_SIZE_IN_PAGE = 999;
 
 #endif
